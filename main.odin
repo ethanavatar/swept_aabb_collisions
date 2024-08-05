@@ -34,7 +34,14 @@ draw_bounds :: proc(aabb : BoundingBox, color : raylib.Color) {
     )
 }
 
+ensure_aspect_ratio :: proc(width, height : ^i32, target_width, target_height : i32) {
+    target_aspect_ratio := cast(f32)target_width / cast(f32)target_height
+    new_height := cast(f32)width^ / target_aspect_ratio
+    height^ = cast(i32)new_height
+}
+
 main :: proc() {
+    raylib.SetConfigFlags({.WINDOW_RESIZABLE})
     raylib.InitWindow(800, 600, "Swept AABB Collision")
     defer raylib.CloseWindow()
 
@@ -48,6 +55,15 @@ main :: proc() {
 
     for (!should_close && !raylib.WindowShouldClose()) {
         defer free_all(context.temp_allocator)
+
+        if (raylib.IsWindowResized()) {
+            width := raylib.GetScreenWidth()
+            height := raylib.GetScreenHeight()
+            ensure_aspect_ratio(&width, &height, 800, 600)
+            raylib.SetWindowSize(width, height)
+            window_rect.width = cast(f32)width
+            window_rect.height = cast(f32)height
+        }
 
         cursor_box.position = raylib.GetMousePosition()
 
@@ -96,7 +112,7 @@ main :: proc() {
                     }
                 }
             }
-            
+
         raylib.EndTextureMode()
 
         raylib.BeginDrawing()
