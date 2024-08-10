@@ -1,13 +1,14 @@
 package main
 import "core:fmt"
 import "vendor:raylib"
+import "core:math"
 
 should_close := false
 canvas : raylib.RenderTexture2D
 window : raylib.RenderTexture2D
 
-canvas_width, canvas_height := 800, 600
-window_width, window_height := 800, 600
+canvas_width, canvas_height : i32 = 800, 600
+window_width, window_height : i32 = canvas_width * 2, canvas_height * 2
 
 canvas_rect := raylib.Rectangle{0, 0, cast(f32)canvas_width, -cast(f32)canvas_height}
 window_rect := raylib.Rectangle{0, 0, cast(f32)window_width,  cast(f32)window_height}
@@ -20,7 +21,42 @@ sum_box := BoundingBox{test_box.position, test_box.half_extents + cursor_box.hal
 placed_box := BoundingBox{raylib.Vector2{0, 0}, raylib.Vector2{25, 25}}
 
 BoundingBox :: struct {
-    position, half_extents : raylib.Vector2
+    position, half_extents : raylib.Vector2,
+}
+
+Hit :: struct {
+    is_hit : bool,
+    time : f32,
+    position : raylib.Vector2,
+}
+
+ray_intersect_bounds :: proc(position : raylib.Vector2, magnitude : raylib.Vector2, bounds : BoundingBox) -> Hit {
+    hit := Hit{}
+    min := bounds.position - bounds.half_extents
+    max := bounds.position + bounds.half_extents
+
+    last_entry : f32 = -math.F32_MAX
+    first_exit : f32 = math.F32_MAX
+
+    for dimension := 0; dimension < 2; dimension += 1 {
+        if (magnitude[dimension] != 0) {
+            t0 := (min[dimension] - position[dimension]) / magnitude[dimension]
+            t1 := (max[dimension] - position[dimension]) / magnitude[dimension]
+
+            last_entry = math.max(last_entry, math.min(t0, t1)) 
+            first_exit = math.min(first_exit, math.max(t0, t1))
+        } else if (position[dimension] < min[dimension] || position[dimension] > max[dimension]) {
+            return hit
+        }
+    }
+
+    if (last_entry < first_exit && last_entry >= 0 && last_entry <= 1) {
+        hit.is_hit = true
+        hit.time = last_entry
+        hit.position = position + magnitude * last_entry
+    }
+
+    return hit
 }
 
 draw_bounds :: proc(aabb : BoundingBox, color : raylib.Color) {
@@ -40,17 +76,30 @@ ensure_aspect_ratio :: proc(width, height : ^i32, target_width, target_height : 
     height^ = cast(i32)new_height
 }
 
+
+
+window_to_canvas_position :: proc(window_position : raylib.Vector2) -> raylib.Vector2 {
+    return raylib.Vector2{
+        window_position.x / cast(f32)window_width * cast(f32)canvas_width,
+        window_position.y / cast(f32)window_height * cast(f32)canvas_height,
+    }
+}
+
+get_canvas_mouse_position :: proc() -> raylib.Vector2 {
+    return window_to_canvas_position(raylib.GetMousePosition())
+}
+
 main :: proc() {
     raylib.SetConfigFlags({.WINDOW_RESIZABLE})
-    raylib.InitWindow(800, 600, "Swept AABB Collision")
+    raylib.InitWindow(window_width, window_height, "Swept AABB Collision")
     defer raylib.CloseWindow()
 
     raylib.SetTargetFPS(60)
 
-    canvas = raylib.LoadRenderTexture(800, 600)
+    canvas = raylib.LoadRenderTexture(canvas_width, canvas_height)
     defer raylib.UnloadRenderTexture(canvas)
 
-    window = raylib.LoadRenderTexture(800, 600)
+    window = raylib.LoadRenderTexture(window_width, window_height)
     defer raylib.UnloadRenderTexture(window)
 
     for (!should_close && !raylib.WindowShouldClose()) {
@@ -65,18 +114,14 @@ main :: proc() {
             window_rect.height = cast(f32)height
         }
 
-        cursor_box.position = raylib.GetMousePosition()
+        mouse_position := get_canvas_mouse_position()
+        cursor_box.position = mouse_position
 
         x := sum_box.position.x - test_box.position.x
         y := sum_box.position.y - test_box.position.y
         size := sum_box.half_extents.x
 
-        if (raylib.IsMouseButtonPressed(raylib.MouseButton.LEFT)) {
-            placed_box.position = cursor_box.position
-        }
-
         canvas_center := raylib.Vector2{cast(f32)canvas_width / 2, cast(f32)canvas_height / 2}
-        mouse_position := raylib.GetMousePosition()
 
         raylib.BeginTextureMode(canvas)
             raylib.ClearBackground(raylib.BLACK)
@@ -84,34 +129,25 @@ main :: proc() {
             draw_bounds(cursor_box, faded_white)
             draw_bounds(placed_box, faded_white)
 
+            raylib.DrawLineV(placed_box.position, cursor_box.position, faded_white)
+
             raylib.DrawLineV(raylib.Vector2{canvas_center.x + x - size, 0}, raylib.Vector2{canvas_center.x + x - size, 600}, faded_white)
             raylib.DrawLineV(raylib.Vector2{canvas_center.x + x + size, 0}, raylib.Vector2{canvas_center.x + x + size, 600}, faded_white)
             raylib.DrawLineV(raylib.Vector2{0, canvas_center.y + y - size}, raylib.Vector2{800, canvas_center.y + y - size}, faded_white)
             raylib.DrawLineV(raylib.Vector2{0, canvas_center.y + y + size}, raylib.Vector2{800, canvas_center.y + y + size}, faded_white)
 
-            min := sum_box.position - sum_box.half_extents
-            max := sum_box.position + sum_box.half_extents
-
             magnitude := mouse_position - placed_box.position
+            hit := ray_intersect_bounds(placed_box.position, magnitude, sum_box)
             
-            for dimension := 0; dimension < 2; dimension += 1 {
-                if (magnitude[dimension] != 0) {
-                    t0 := (min[dimension] - placed_box.position[dimension]) / magnitude[dimension]
-                    t1 := (max[dimension] - placed_box.position[dimension]) / magnitude[dimension]
-
-                    if (t0 > t1) {
-                        t0, t1 = t1, t0
-                    }
-
-                    if (t0 <= 1 && t0 >= 0) {
-                        raylib.DrawCircleV(placed_box.position + magnitude * t0, 2, raylib.GREEN)
-                    }
-
-                    if (t1 >= 0 && t1 <= 1) {
-                        raylib.DrawCircleV(placed_box.position + magnitude * t1, 2, raylib.GREEN)
-                    }
-                }
+            if (hit.is_hit) {
+                swept_box := BoundingBox{hit.position, placed_box.half_extents}
+                draw_bounds(swept_box, raylib.RED)
             }
+
+            if (raylib.IsMouseButtonPressed(raylib.MouseButton.LEFT)) {
+                placed_box.position = mouse_position
+            }
+
 
         raylib.EndTextureMode()
 
