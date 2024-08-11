@@ -30,7 +30,11 @@ Hit :: struct {
     position : raylib.Vector2,
 }
 
-ray_intersect_bounds :: proc(position : raylib.Vector2, magnitude : raylib.Vector2, bounds : BoundingBox) -> Hit {
+ray_intersect_bounds :: proc(
+    position : raylib.Vector2,
+    magnitude : raylib.Vector2,
+    bounds : BoundingBox
+) -> Hit {
     hit := Hit{}
     min := bounds.position - bounds.half_extents
     max := bounds.position + bounds.half_extents
@@ -138,16 +142,40 @@ main :: proc() {
 
             magnitude := mouse_position - placed_box.position
             hit := ray_intersect_bounds(placed_box.position, magnitude, sum_box)
-            
+
             if (hit.is_hit) {
                 swept_box := BoundingBox{hit.position, placed_box.half_extents}
                 draw_bounds(swept_box, raylib.RED)
+
+                hit_distance := hit.position - test_box.position
+                normal := math.abs(hit_distance.x) > math.abs(hit_distance.y) ? raylib.Vector2{hit_distance.x, 0} : raylib.Vector2{0, hit_distance.y}
+                raylib.DrawLineV(test_box.position, test_box.position + normal, raylib.GREEN)
+
+                collision_angle := math.atan2(placed_box.position.y - hit.position.y, placed_box.position.x - hit.position.x)
+                deflection_angle := collision_angle + math.PI
+                deflection_vector := raylib.Vector2{math.cos(deflection_angle), math.sin(deflection_angle)}
+
+                if (normal.x != 0) {
+                    deflection_vector.x = -deflection_vector.x
+                } else {
+                    deflection_vector.y = -deflection_vector.y
+                }
+
+                absolute_distance := raylib.Vector2{math.abs(magnitude.x), math.abs(magnitude.y)}
+                deflection_magnitude := (1.0 - hit.time) * raylib.Vector2Length(absolute_distance)
+                raylib.DrawLineV(hit.position, hit.position + deflection_vector * deflection_magnitude, raylib.BLUE)
+
+                deflected_box := BoundingBox{
+                    hit.position + deflection_vector * deflection_magnitude,
+                    placed_box.half_extents
+                }
+
+                draw_bounds(deflected_box, raylib.BLUE)
             }
 
             if (raylib.IsMouseButtonPressed(raylib.MouseButton.LEFT)) {
                 placed_box.position = mouse_position
             }
-
 
         raylib.EndTextureMode()
 
