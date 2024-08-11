@@ -63,6 +63,59 @@ ray_intersect_bounds :: proc(
     return hit
 }
 
+sweep_and_deflect :: proc(
+    a : BoundingBox, // The box that is moving and will be deflected
+    b : BoundingBox, // The box to deflect off of
+    velocity : raylib.Vector2,
+) -> BoundingBox {
+    combined_box := BoundingBox{b.position, a.half_extents + b.half_extents};
+    destination := BoundingBox{a.position + velocity, a.half_extents}
+
+    raylib.DrawLineV(a.position, destination.position, faded_white)
+
+    size := combined_box.half_extents.x
+    canvas_center := raylib.Vector2{cast(f32)canvas_width / 2, cast(f32)canvas_height / 2}
+    x := combined_box.position.x - b.position.x
+    y := combined_box.position.y - b.position.y
+    raylib.DrawLineV(raylib.Vector2{canvas_center.x + x - size, 0}, raylib.Vector2{canvas_center.x + x - size, 600}, faded_white)
+    raylib.DrawLineV(raylib.Vector2{canvas_center.x + x + size, 0}, raylib.Vector2{canvas_center.x + x + size, 600}, faded_white)
+    raylib.DrawLineV(raylib.Vector2{0, canvas_center.y + y - size}, raylib.Vector2{800, canvas_center.y + y - size}, faded_white)
+    raylib.DrawLineV(raylib.Vector2{0, canvas_center.y + y + size}, raylib.Vector2{800, canvas_center.y + y + size}, faded_white)
+
+    hit := ray_intersect_bounds(a.position, velocity, combined_box)
+    if (!hit.is_hit) {
+        return destination
+    }
+
+    swept_box := BoundingBox{hit.position, a.half_extents}
+    draw_bounds(swept_box, raylib.RED)
+
+    hit_distance := hit.position - b.position
+    normal := math.abs(hit_distance.x) > math.abs(hit_distance.y) ? raylib.Vector2{hit_distance.x, 0} : raylib.Vector2{0, hit_distance.y}
+    raylib.DrawLineV(b.position, b.position + normal, raylib.GREEN)
+
+    collision_angle := math.atan2(a.position.y - hit.position.y, a.position.x - hit.position.x)
+    deflection_angle := collision_angle + math.PI
+    deflection_vector := raylib.Vector2{math.cos(deflection_angle), math.sin(deflection_angle)}
+
+    if (normal.x != 0) {
+        deflection_vector.x = -deflection_vector.x
+    } else {
+        deflection_vector.y = -deflection_vector.y
+    }
+
+    absolute_distance := raylib.Vector2{math.abs(velocity.x), math.abs(velocity.y)}
+    deflection_magnitude := (1.0 - hit.time) * raylib.Vector2Length(absolute_distance)
+    raylib.DrawLineV(hit.position, hit.position + deflection_vector * deflection_magnitude, raylib.BLUE)
+
+    deflected_box := BoundingBox{
+        hit.position + deflection_vector * deflection_magnitude,
+        a.half_extents
+    }
+
+    return deflected_box
+}
+
 draw_bounds :: proc(aabb : BoundingBox, color : raylib.Color) {
     raylib.DrawCircleV(aabb.position, 2, color)
     raylib.DrawRectangleLines(
@@ -132,51 +185,13 @@ main :: proc() {
             draw_bounds(test_box, raylib.WHITE)
             draw_bounds(cursor_box, faded_white)
             draw_bounds(placed_box, faded_white)
-
-            raylib.DrawLineV(placed_box.position, cursor_box.position, faded_white)
-
-            raylib.DrawLineV(raylib.Vector2{canvas_center.x + x - size, 0}, raylib.Vector2{canvas_center.x + x - size, 600}, faded_white)
-            raylib.DrawLineV(raylib.Vector2{canvas_center.x + x + size, 0}, raylib.Vector2{canvas_center.x + x + size, 600}, faded_white)
-            raylib.DrawLineV(raylib.Vector2{0, canvas_center.y + y - size}, raylib.Vector2{800, canvas_center.y + y - size}, faded_white)
-            raylib.DrawLineV(raylib.Vector2{0, canvas_center.y + y + size}, raylib.Vector2{800, canvas_center.y + y + size}, faded_white)
-
-            magnitude := mouse_position - placed_box.position
-            hit := ray_intersect_bounds(placed_box.position, magnitude, sum_box)
-
-            if (hit.is_hit) {
-                swept_box := BoundingBox{hit.position, placed_box.half_extents}
-                draw_bounds(swept_box, raylib.RED)
-
-                hit_distance := hit.position - test_box.position
-                normal := math.abs(hit_distance.x) > math.abs(hit_distance.y) ? raylib.Vector2{hit_distance.x, 0} : raylib.Vector2{0, hit_distance.y}
-                raylib.DrawLineV(test_box.position, test_box.position + normal, raylib.GREEN)
-
-                collision_angle := math.atan2(placed_box.position.y - hit.position.y, placed_box.position.x - hit.position.x)
-                deflection_angle := collision_angle + math.PI
-                deflection_vector := raylib.Vector2{math.cos(deflection_angle), math.sin(deflection_angle)}
-
-                if (normal.x != 0) {
-                    deflection_vector.x = -deflection_vector.x
-                } else {
-                    deflection_vector.y = -deflection_vector.y
-                }
-
-                absolute_distance := raylib.Vector2{math.abs(magnitude.x), math.abs(magnitude.y)}
-                deflection_magnitude := (1.0 - hit.time) * raylib.Vector2Length(absolute_distance)
-                raylib.DrawLineV(hit.position, hit.position + deflection_vector * deflection_magnitude, raylib.BLUE)
-
-                deflected_box := BoundingBox{
-                    hit.position + deflection_vector * deflection_magnitude,
-                    placed_box.half_extents
-                }
-
-                draw_bounds(deflected_box, raylib.BLUE)
-            }
+ 
+            deflected := sweep_and_deflect(placed_box, test_box, cursor_box.position - placed_box.position)
+            draw_bounds(deflected, raylib.RED)
 
             if (raylib.IsMouseButtonPressed(raylib.MouseButton.LEFT)) {
                 placed_box.position = mouse_position
             }
-
         raylib.EndTextureMode()
 
         raylib.BeginDrawing()
